@@ -1,5 +1,6 @@
 import requests
 import os
+import sys
 from bs4 import BeautifulSoup as bs
 
 class Pixiv():
@@ -9,13 +10,19 @@ class Pixiv():
         self.main_url = 'https://www.pixiv.net'
         self.setting_url = 'https://www.pixiv.net/setting_profile.php'
         self.artworks_url = 'https://www.pixiv.net/artworks/'
-        self.ranking_url = 'https://www.pixiv.net/ranking.php?mode=daily&content=illust'
+        self.ranking_url = 'https://www.pixiv.net/ranking.php?'
         
         self.headers = {
             'referer': 'https://accounts.pixiv.net',
             'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36',
             'connection': 'keep-alive'
         }
+        
+        self.params = {
+            'mode': 'daily',
+            'content': 'illust'
+        }
+        
         self.login_info = {}
         self.pixiv_id = 'pixiv_id'
         self.password = 'pixiv_pw'
@@ -25,7 +32,8 @@ class Pixiv():
         self.current_path = './Pixiv/'
         
     def login(self):
-        post_key_html = self.s.get(self.base_url, headers = self.headers).text
+        self.get_info()
+        post_key_html = self.s.get(self.base_url, data = self.login_info, headers = self.headers).text
         post_key_soup = bs(post_key_html, 'html.parser')
         self.post_key = post_key_soup.find('input', {'name': 'post_key'})
         self.login_info = {
@@ -35,19 +43,29 @@ class Pixiv():
             'return_to': self.return_to
         }
         login_req = self.s.post(self.base_url, data = self.login_info, headers = self.headers)
-        self.cookies =  self.s.cookies.get_dict()
+        self.cookies = self.s.cookies.get_dict()
         self.headers = {**self.headers, **self.cookies}
         print(login_req.status_code)
+        
+    def get_info(self):
+        while True:
+            try:
+                self.pixiv_id = sys.argv[1]
+                self.password = sys.argv[2]
+                break;
+            except:
+                print('Enter your pixiv ID and password')
+                sys.exit(0)
     
     def get_artwork_url(self):
-        ranking_html = self.s.get(self.ranking_url, data = self.login_info, headers = self.headers).text
+        ranking_html = self.s.get(self.ranking_url, data = self.login_info, headers = self.headers, params = self.params).text
         ranking_data = bs(ranking_html, 'html.parser').find('div', {'class': 'ranking-items-container'}).find_all('section')
         today_data = bs(ranking_html, 'html.parser').find_all('a', {'class': 'current'})
         
         for html in today_data:
             if html['href'].find('date', 4) != -1:
                 today = html['href'].split('=')[-1]
-        self.current_path += today + '/'
+        self.concat_path(today)
         self.mkdir()
         
         for itr in ranking_data:
@@ -107,6 +125,19 @@ class Pixiv():
             print('The folder already exists')
         else:
            os.makedirs(self.current_path)
+           
+    def concat_path(self, today):
+        list = []
+        for itr in self.current_path:
+            list.append(itr)
+        list.append('/')
+        for itr in today:
+            list.append(itr)
+        for itr in self.params:
+            list.append('/')
+            list.append(self.params[itr])
+        list.append('/')
+        self.current_path = ''.join(list)
         
 if __name__ == '__main__':
     pixiv = Pixiv()
