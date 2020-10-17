@@ -31,6 +31,12 @@ class Pixiv():
             'female_r18': {None: 6},
             'r18g': {None: 1, 'illust': 1}
         }
+        
+        self.illust_type = {
+            '0': 'illust',
+            '1': 'manga',
+            '2': 'ugoira'
+        }
 
     def parse_url(self, url, headers=None, data=None, auth=None, cookies=None):
         if not headers:
@@ -75,42 +81,42 @@ class Pixiv():
         return request.json()['body']['originalSrc']
         
     def get_title(self, request):
-        if not isinstance(type(request), str):
+        if type(request) == requests.models.Response:
             return request.json()['body']['illust_details']['title'].replace('/', '_')
         return request['title'].replace('/', '_')
         
     def get_user_name(self, request):
-        if not isinstance(type(request), str):
+        if type(request) == requests.models.Response:
             return request.json()['body']['author_details']['user_name'].replace('/', '_')
         return request['user_name'].replace('/', '_')
         
     def get_user_profile(self, request):
-        if not isinstance(type(request), str):
+        if type(request) == requests.models.Response:
             return request.json()['body']['author_details']['profile_img']['main']
         return request['profile_img']
         
     def get_tag(self, request):
-        if not isinstance(type(request), str):
+        if type(request) == requests.models.Response:
             return request.json()['body']['illust_details']['tags']
         return request['tags']
         
     def get_illust_type(self, request):
-        if not isinstance(type(request), str):
+        if type(request) == requests.models.Response:
             return request.json()['body']['illust_details']['type']
         return request['illust_type']
         
     def get_rating_count(self, request):
-        if not isinstance(type(request), str):
+        if type(request) == requests.models.Response:
             return request.json()['body']['illust_details']['rating_count']
-        return html['rating_count']
+        return request['rating_count']
                 
     def get_rating_view(self, request):
-        if not isinstance(type(request), str):
+        if type(request) == requests.models.Response:
             return request.json()['body']['illust_details']['rating_view']
-        return html['view_count']
+        return request['view_count']
         
     def get_illust_id(self, request, is_user_page=False):
-        if not isinstance(type(request), str):
+        if type(request) == requests.models.Response:
             if is_user_page:
                 ids = []
                 for section in request.json()['body']:
@@ -124,15 +130,17 @@ class Pixiv():
         return request['illust_id']
         
     def get_rank(self, request):
-        return request('rank')
+        return request['rank']
         
     def get_yesterday_rank(self, request):
-        return request('yes_rank')
+        return request['yes_rank']
     
     def get_illust_page_count(self, request):
-        return request('illust_page_count')
+        return request['illust_page_count']
                 
     def get_date(self, request):
+        if type(request) == requests.models.Response:
+            return request.json()['date']
         return request['date']
         
     def get_description(self, request):
@@ -155,20 +163,22 @@ class Pixiv():
         
     def get_img_name(self, img):
         return img.split('.')[0]
+            
+    def is_ugoira(self, illust_type):
+        return self.illust_type[illust_type] == 'ugoira'
 
-    def download_img(self, data, path, file_name):
-        if not isinstance(type(data), str):
-            data = self.parse_url(data)
+    def download_img(self, url, path, title):
+        file_name = '{}.{}'.format(title, self.get_img_format(url))
+        data = self.parse_url(url)
         with open(os.path.join(path, file_name), 'wb') as handle:
             handle.writelines(data)
             handle.close()
 
-    def download_ugoira(self, data, path, file_name, delay):
-        if not isinstance(type(data), str):
-            data = self.parse_url(data)
-        zip_file = '{}.zip'.format(file_name)
-        gif_file = '{}.gif'.format(file_name)
-        new_path = self.mkdir(path, new_folder=file_name)
+    def download_ugoira(self, url, path, title, delay):
+        data = self.parse_url(url)
+        zip_file = '{}.zip'.format(title)
+        gif_file = '{}.gif'.format(title)
+        new_path = self.mkdir(path, new_folder=title)
         with open(os.path.join(new_path, zip_file), 'wb') as handle:
             handle.writelines(data)
             handle.close()
@@ -182,11 +192,12 @@ class Pixiv():
         shutil.rmtree(new_path)
                 
     def mkdir(self, path, new_folder=None, params=None):
-        if params:
-            for key, value in params.items():
-                path = os.path.join(path, value)
         if new_folder:
             path = os.path.join(path, new_folder)
+        if params:
+            for key, value in params.items():
+                if value:
+                    path = os.path.join(path, value)
         if not os.path.exists(path):
             os.makedirs(path)
         return path
