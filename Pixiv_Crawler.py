@@ -1,14 +1,12 @@
 import requests
 import imageio
 import os
-from bs4 import BeautifulSoup as bs
+import shutil
+from zipfile import ZipFile
 
 class Pixiv():
     def __init__(self):
         self.s = requests.Session()
-        self.base_url = 'https://accounts.pixiv.net/login'
-        self.main_url = 'https://www.pixiv.net'
-        self.artworks_url = 'https://www.pixiv.net/artworks/'
         
         self.headers = {
             'referer': 'https://accounts.pixiv.net',
@@ -19,132 +17,176 @@ class Pixiv():
         self.params = {}
         self.cookies = []
         
-        self.modes = ['daily', 'weekly', 'monthly', 'rookie', 'original', 'male', 'female', 'daily_r18', 'weekly_r18', 'male_r18', 'female_r18', 'r18g']
-        self.contents = ['illust', 'ugoira', 'manga']
-        
-    def set_login_info(self, pixiv_id, password):
-        self.login_info['pixiv_id'] = pixiv_id
-        self.login_info['password'] = password
-        
-    def set_cookies(self):
-        self.cookies = self.s.cookies.get_dict()
-        
-    def get_cur_headers(self):
-        return self.s.headers
-       
-    def set_params(self, mode = None, content = None):
-        try:
-            self.params['mode'] = self.modes[self.modes.index(mode)]
-        except:
-            self.set_default('mode', self.modes)
-            
-        try:
-            self.params['content'] = self.contents[self.contents.index(content)]
-        except IndexError:
-            pass
-        except ValueError:
-            self.set_default('content', self.contents)
-            
-        return self.params
-        
-    def set_default(self, condition, list):
-        print('Your input is not valid or is empty')
-        print('Set as default')
-        self.params[condition] = list[0]
-        
-    def parse_url(self, url):
-        return self.s.get(url, headers=self.headers, params=self.params)
-        
-    def get_today(self, req):
-        return bs(req.text, 'html.parser').find_all('a', {'class': 'current'})[2].text
-            
-    def get_artwork_html(self, req):
-        return bs(req.text, 'html.parser').find('div', {'class': 'ranking-items-container'}).find_all('section')
-        
-    def get_attribute(self, html):
-        return html['data-attr']
-        
-    def get_date(self, html):
-        return html['data-date']
-        
-    def get_artwork_id(self, html):
-        return html['data-id']
-            
-    def get_rank(self, html, is_text=False):
-        if is_text:
-            return html['data-rank-text']
-        return html['data-rank']
-          
-    def get_title(self, html):
-        return html['data-title']
-            
-    def get_user_name(self, html):
-        return html['data-user-name']
-            
-    def get_type(self, html):
-        return html.find('img')['data-type']
-                
-    def get_page_count(self, html):
-        try:
-            return int(html.find('div', {'class': 'page-count'}).text)
-        except:
-            return 1
-    
-    def get_file_name(self, html, index, format):
-        if index == 0:
-            file_name = '#{rank} - {title} by {user_name}.{format}'.format(rank=self.get_rank(html), title=self.get_title(html), user_name=self.get_user_name(html), format=format)
+        self.pages = {
+            'daily': {None: 10, 'illust': 10, 'ugoira': 2, 'manga': 10},
+            'daily_r18': {None: 2, 'illust': 2, 'ugoira': 2, 'manga': 2},
+            'weekly': {None: 10, 'illust': 10, 'ugoira': 2, 'manga': 10},
+            'weekly_r18': {None: 2, 'illust': 2, 'ugoira': 1, 'manga': 2},
+            'monthly': {None: 10, 'illust': 5, 'manga': 2},
+            'rookie': {None: 6, 'illust': 6, 'manga': 2},
+            'original': {None: 6},
+            'male': {None: 10},
+            'male_r18': {None: 6},
+            'female': {None: 10},
+            'female_r18': {None: 6},
+            'r18g': {None: 1, 'illust': 1}
+        }
+
+    def parse_url(self, url, headers=None, data=None, auth=None, cookies=None):
+        if not headers:
+            headers = self.headers
+        return self.s.get(url, headers=headers, data=data, auth=auth, cookies=cookies)
+
+    def get_data_url(self, illust_id=None, user_id=None, illust_type=None, params=None, index=None, detail=False, list=False):
+        if illust_id:
+            if detail:
+                return 'https://www.pixiv.net/touch/ajax/illust/details?illust_id={illust_id}'.format(illust_id=illust_id)
+            elif illust_type == '2':
+                return 'https://www.pixiv.net/ajax/illust/{illust_id}/ugoira_meta'.format(illust_id=illust_id)
+            return 'https://www.pixiv.net/ajax/illust/{illust_id}/pages'.format(illust_id=illust_id)
+        if user_id:
+            return 'https://www.pixiv.net/ajax/user/{user_id}/profile/all'.format(user_id=user_id)
+        url = 'https://www.pixiv.net/ranking.php?'
+        if params['mode']:
+            url = '{url}mode={mode}'.format(url=url, mode=params['mode'])
+        if params['content']:
+            url = '{url}&content={content}'.format(url=url, content=params['content'])
+        if list:
+            urls = []
+            if index:
+                index = min(index, self.pages[params['mode']][params['content']])
+            else:
+                index = self.pages[params['mode']][params['content']]
+            for i in range(1, index + 1):
+                urls.append('{url}&p={index}&format=json'.format(url=url, index=i))
+            return urls
         else:
-            file_name = '#{} - {} by {}[{}].{}'.format(self.get_rank(html), self.get_title(html), self.get_user_name(html), index, format)
-        return file_name.replace('/', '-')
-    
-    def get_format(self, url):
-        return url.split('.')[-1]
-    
-    def get_artwork_url(self, data_id):
-        return '{url}{id}'.format(url=self.artworks_url, id=data_id)
-    
-    def get_original_url(self, url):
-        return bs(self.parse_url(url).text, 'html.parser').find_all('meta')[-1]['content'].split(',')[17].split('"')[3]
-            
-    def next_page(self, url, index):
-        page_num = url.split('.')
-        page = page_num[-2].split('_')
-        page[-1] = page[-1].replace(str(index - 1), str(index))
-        page_num[-2] = '_'.join(page)
-        return '.'.join(page_num)
-            
-    def is_connect(self, req):
-        return req.status_code == 200
+            url = '{url}&p={index}'.format(url=url, index=1)
+        return '{url}&format=json'.format(url=url)
+
+    def get_original_img(self, request, illust_type):
+        if illust_type != '2':
+            urls = []
+            for html in request.json()['body']:
+                urls.append(html['urls']['original'])
+            if len(urls) == 1:
+                return urls[0]
+            return urls
+        return request.json()['body']['originalSrc']
         
-    def download_img(self, url, file_name, path):
-        with open('{path}/{file_name}'.format(path=path, file_name=file_name), 'wb') as handle:
-                print(file_name)
-                handle.writelines(self.parse_url(url))
-                handle.close()
+    def get_title(self, request):
+        if not isinstance(type(request), str):
+            return request.json()['body']['illust_details']['title'].replace('/', '_')
+        return request['title'].replace('/', '_')
+        
+    def get_user_name(self, request):
+        if not isinstance(type(request), str):
+            return request.json()['body']['author_details']['user_name'].replace('/', '_')
+        return request['user_name'].replace('/', '_')
+        
+    def get_user_profile(self, request):
+        if not isinstance(type(request), str):
+            return request.json()['body']['author_details']['profile_img']['main']
+        return request['profile_img']
+        
+    def get_tag(self, request):
+        if not isinstance(type(request), str):
+            return request.json()['body']['illust_details']['tags']
+        return request['tags']
+        
+    def get_illust_type(self, request):
+        if not isinstance(type(request), str):
+            return request.json()['body']['illust_details']['type']
+        return request['illust_type']
+        
+    def get_rating_count(self, request):
+        if not isinstance(type(request), str):
+            return request.json()['body']['illust_details']['rating_count']
+        return html['rating_count']
                 
-    def download_ugoira(self, url, file_name, path, html):
-        gif_name = os.path.join(path, '{}.{}'.format(file_name.split('.')[0], 'gif'))
-        with imageio.get_writer(gif_name, mode='I', format='GIF-PIL', fps=18) as writer:
+    def get_rating_view(self, request):
+        if not isinstance(type(request), str):
+            return request.json()['body']['illust_details']['rating_view']
+        return html['view_count']
         
-            index = 0
-            while True:
-                req = self.parse_url(self.next_page(url, index))
-                if self.is_connect(req) == False:
-                    break;
-                self.download_img(url, file_name, path)
-                img = imageio.imread(os.path.join(path, file_name))
+    def get_illust_id(self, request, is_user_page=False):
+        if not isinstance(type(request), str):
+            if is_user_page:
+                ids = []
+                for section in request.json()['body']:
+                    if section == 'novels':
+                        break;
+                    for illust_id in request.json()['body'][section]:
+                        ids.append(illust_id)
+                ids.sort(reverse=True, key=lambda id: int(id))
+                return ids
+            return request.json()['body']['illust_details']['id']
+        return request['illust_id']
+        
+    def get_rank(self, request):
+        return request('rank')
+        
+    def get_yesterday_rank(self, request):
+        return request('yes_rank')
+    
+    def get_illust_page_count(self, request):
+        return request('illust_page_count')
+                
+    def get_date(self, request):
+        return request['date']
+        
+    def get_description(self, request):
+        return request.json()['body']['illust_details']['description']
+        
+    def get_user_account(self, request):
+        return request.json()['body']['author_details']['user_account']
+        
+    def get_bookmark_user(self, request):
+        return request.json()['body']['illust_details']['bookmark_user_total']
+        
+    def get_delay(self, request):
+        list = []
+        for dict in request.json()['body']['frames']:
+            list.append(dict['delay']/1000)
+        return list
+        
+    def get_img_format(self, img):
+        return img.split('.')[-1]
+        
+    def get_img_name(self, img):
+        return img.split('.')[0]
+
+    def download_img(self, data, path, file_name):
+        if not isinstance(type(data), str):
+            data = self.parse_url(data)
+        with open(os.path.join(path, file_name), 'wb') as handle:
+            handle.writelines(data)
+            handle.close()
+
+    def download_ugoira(self, data, path, file_name, delay):
+        if not isinstance(type(data), str):
+            data = self.parse_url(data)
+        zip_file = '{}.zip'.format(file_name)
+        gif_file = '{}.gif'.format(file_name)
+        new_path = self.mkdir(path, new_folder=file_name)
+        with open(os.path.join(new_path, zip_file), 'wb') as handle:
+            handle.writelines(data)
+            handle.close()
+        with ZipFile(os.path.join(new_path, zip_file), 'r') as zip:
+            zip.extractall(new_path)
+            list = zip.namelist()
+        with imageio.get_writer(os.path.join(path, gif_file), mode='I', format='GIF-PIL', duration=delay) as writer:
+            for file in list:
+                img = imageio.imread(os.path.join(new_path, file))
                 writer.append_data(img)
-                self.delete_img(file_name, path)
-                index += 1
-                url = self.next_page(url, index)
-                file_name = self.get_file_name(html, index, file_name.split('.')[-1])
-        print(gif_name)
-
-    def delete_img(self, file_name, path):
-        os.remove(os.path.join(path, file_name))
-
-    def mkdir(self, path):
-        if os.path.exists(path):
-            print('The folder already exists')
-        else:
-           os.makedirs(path)
+        shutil.rmtree(new_path)
+                
+    def mkdir(self, path, new_folder=None, params=None):
+        if params:
+            for key, value in params.items():
+                path = os.path.join(path, value)
+        if new_folder:
+            path = os.path.join(path, new_folder)
+        if not os.path.exists(path):
+            os.makedirs(path)
+        return path
