@@ -1,21 +1,31 @@
-import requests
-import imageio
 import os
 import shutil
+import hashlib
+import cloudscraper
+import imageio
 from zipfile import ZipFile
+from datetime import datetime
 
 class Pixiv():
-    def __init__(self):
-        self.s = requests.Session()
+    client_id = 'MOBrBDS8blbauoSck0ZfDbtuzpyT'
+    client_secret = 'lsACyCD94FhDUtGTXi3QzcFE2uU1hqtDaKeqrdwj'
+    hash_secret = '28c1fdd170a5204386cb1313c7077b34f83e4aaf4aa829ce78c231e05b0bae2c'
+    
+    access_token = None
+    login_user_id = 0
+    refresh_token = None
+
+    def __init__(self, **requests_kwargs):
+        self.s = cloudscraper.create_scraper()
+        self.requests_kwargs = requests_kwargs
+        self.app_host = 'https://app-api.pixiv.net'
+        self.web_host = 'https://pixiv.net'
         
         self.headers = {
-            'referer': 'https://accounts.pixiv.net',
-            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36'
+            #'User-Agent': 'PixivIOSApp/7.9.4',
+            'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36',
+            'referer': 'www.pixiv.net'
         }
-        
-        self.login_info = {}
-        self.params = {}
-        self.cookies = []
         
         self.pages = {
             'daily': {None: 10, 'illust': 10, 'ugoira': 2, 'manga': 10},
@@ -38,166 +48,325 @@ class Pixiv():
             '2': 'ugoira'
         }
 
-    def parse_url(self, url, headers=None, data=None, auth=None, cookies=None):
+    def parse_url(self, url, mode='get', headers=None, data=None, params=None, stream=False):
         if not headers:
             headers = self.headers
-        return self.s.get(url, headers=headers, data=data, auth=auth, cookies=cookies)
-
-    def get_data_url(self, illust_id=None, user_id=None, illust_type=None, params=None, index=None, detail=False, list=False):
-        if illust_id:
-            if detail:
-                return 'https://www.pixiv.net/touch/ajax/illust/details?illust_id={illust_id}'.format(illust_id=illust_id)
-            elif illust_type == '2':
-                return 'https://www.pixiv.net/ajax/illust/{illust_id}/ugoira_meta'.format(illust_id=illust_id)
-            return 'https://www.pixiv.net/ajax/illust/{illust_id}/pages'.format(illust_id=illust_id)
-        if user_id:
-            return 'https://www.pixiv.net/ajax/user/{user_id}/profile/all'.format(user_id=user_id)
-        url = 'https://www.pixiv.net/ranking.php?'
-        if params['mode']:
-            url = '{url}mode={mode}'.format(url=url, mode=params['mode'])
-        if params['content']:
-            url = '{url}&content={content}'.format(url=url, content=params['content'])
-        if list:
-            urls = []
-            if index:
-                index = min(index, self.pages[params['mode']][params['content']])
-            else:
-                index = self.pages[params['mode']][params['content']]
-            for i in range(1, index + 1):
-                urls.append('{url}&p={index}&format=json'.format(url=url, index=i))
-            return urls
-        else:
-            url = '{url}&p={index}'.format(url=url, index=1)
-        return '{url}&format=json'.format(url=url)
-
-    def get_original_img(self, request, illust_type):
-        if illust_type != '2':
-            urls = []
-            for html in request.json()['body']:
-                urls.append(html['urls']['original'])
-            if len(urls) == 1:
-                return urls[0]
-            return urls
-        return request.json()['body']['originalSrc']
-        
-    def get_title(self, request):
-        if type(request) == requests.models.Response:
-            return request.json()['body']['illust_details']['title'].replace('/', '_')
-        return request['title'].replace('/', '_')
-        
-    def get_user_name(self, request):
-        if type(request) == requests.models.Response:
-            return request.json()['body']['author_details']['user_name'].replace('/', '_')
-        return request['user_name'].replace('/', '_')
-        
-    def get_user_profile(self, request):
-        if type(request) == requests.models.Response:
-            return request.json()['body']['author_details']['profile_img']['main']
-        return request['profile_img']
-        
-    def get_tag(self, request):
-        if type(request) == requests.models.Response:
-            return request.json()['body']['illust_details']['tags']
-        return request['tags']
-        
-    def get_illust_type(self, request):
-        if type(request) == requests.models.Response:
-            return request.json()['body']['illust_details']['type']
-        return request['illust_type']
-        
-    def get_rating_count(self, request):
-        if type(request) == requests.models.Response:
-            return request.json()['body']['illust_details']['rating_count']
-        return request['rating_count']
-                
-    def get_rating_view(self, request):
-        if type(request) == requests.models.Response:
-            return request.json()['body']['illust_details']['rating_view']
-        return request['view_count']
-        
-    def get_illust_id(self, request, is_user_page=False):
-        if type(request) == requests.models.Response:
-            if is_user_page:
-                ids = []
-                for section in request.json()['body']:
-                    if section == 'novels':
-                        break;
-                    for illust_id in request.json()['body'][section]:
-                        ids.append(illust_id)
-                ids.sort(reverse=True, key=lambda id: int(id))
-                return ids
-            return request.json()['body']['illust_details']['id']
-        return request['illust_id']
-        
-    def get_rank(self, request):
-        return request['rank']
-        
-    def get_yesterday_rank(self, request):
-        return request['yes_rank']
-    
-    def get_illust_page_count(self, request):
-        return request['illust_page_count']
-                
-    def get_date(self, request):
-        if type(request) == requests.models.Response:
-            return request.json()['date']
-        return request['date']
-        
-    def get_description(self, request):
-        return request.json()['body']['illust_details']['description']
-        
-    def get_user_account(self, request):
-        return request.json()['body']['author_details']['user_account']
-        
-    def get_bookmark_user(self, request):
-        return request.json()['body']['illust_details']['bookmark_user_total']
-        
-    def get_delay(self, request):
-        list = []
-        for dict in request.json()['body']['frames']:
-            list.append(dict['delay']/1000)
-        return list
-        
-    def get_img_format(self, img):
-        return img.split('.')[-1]
-        
-    def get_img_name(self, img):
-        return img.split('.')[0]
+        if mode == 'get':
+            return self.s.get(url, headers=headers, data=data, params=params, stream=stream, **self.requests_kwargs)
+        if mode == 'post':
+            return self.s.post(url, headers=headers, data=data, params=params, stream=stream, **self.requests_kwargs)
+        if mode == 'delete':
+            return self.s.delete(url, headers=headers, data=data, params=params, stream=stream, **self.requests_kwargs)
             
-    def is_ugoira(self, illust_type):
-        return self.illust_type[illust_type] == 'ugoira'
+    def login(self, pixiv_id=None, password=None, refresh_token=None):
+        local_time = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S+00:00')
+        headers = {
+            'User-Agent': 'PixivIOSApp/7.9.4',
+            'X-Client-Time': local_time,
+            'X-Client-Hash': hashlib.md5('{local_time}{hash_secret}'.format(local_time=local_time, hash_secret=self.hash_secret).encode('utf-8')).hexdigest()
+        }
+        url = 'https://oauth.secure.pixiv.net/auth/token'
+        data = {
+            'get_secure_url': 1,
+            'client_id': self.client_id,
+            'client_secret': self.client_secret
+        }
+        
+        if pixiv_id and password:
+            data['grant_type'] = 'password'
+            data['username'] = pixiv_id
+            data['password'] = password
+        elif refresh_token:
+            data['grant_type'] = 'refresh_token'
+            data['refresh_token'] = refresh_token or self.refresh_token
+            
+        res = self.parse_url(url, 'post', headers=headers, data=data)
+        
+        token = None
+        if res.status_code == 200:
+            token = res.json()
+            self.access_token = token['access_token']
+            self.user_id = token['user']['id']
+            self.refresh_token = token['refresh_token']
+            self.headers['Authorization'] = 'Bearer {access_token}'.format(access_token=token['response']['access_token'])
+            self.headers['host'] = 'app-api.pixiv.net'
+        return token
+  
+    def user_detail(self, user_id, filter=None):
+        url = f'{self.app_host}/v1/user/detail'
+        params = {
+            'user_id': user_id,
+            'filter': filter
+        }
+        return self.parse_url(url, params=params).json()
 
-    def download_img(self, url, path, title):
-        file_name = '{}.{}'.format(title, self.get_img_format(url))
-        data = self.parse_url(url)
-        with open(os.path.join(path, file_name), 'wb') as handle:
-            handle.writelines(data)
-            handle.close()
+    def user_illust(self, user_id, type=None, tags=None, restrict=None, filter=None, offset=None, is_pc=False):
+        if is_pc:
+            url = f'{self.web_host}/ajax/user/{user_id}/profile/all'
+            return self.parse_url(url).json()
+        url = f'{self.app_host}/v1/user/illusts'
+        params = {
+            'user_id': user_id,
+            'type': type,
+            'tags': tags,
+            'restrict': restrict,
+            'filter': filter,
+            'offset': offset
+        }
+        return self.parse_url(url, params=params).json()
+        
+    def user_bookmark_illust(self, user_id, restrict=None, filter=None, offset=None):
+        url = f'{self.app_host}/v1/user/bookmarks/illust'
+        params = {
+            'user_id': user_id,
+            'restrict': restrict,
+            'filter': filter,
+            'offset': offset
+        }
+        return self.parse_url(url, params=params).json()
 
-    def download_ugoira(self, url, path, title, delay):
-        data = self.parse_url(url)
-        zip_file = '{}.zip'.format(title)
-        gif_file = '{}.gif'.format(title)
-        new_path = self.mkdir(path, new_folder=title)
-        with open(os.path.join(new_path, zip_file), 'wb') as handle:
-            handle.writelines(data)
-            handle.close()
-        with ZipFile(os.path.join(new_path, zip_file), 'r') as zip:
-            zip.extractall(new_path)
-            list = zip.namelist()
-        with imageio.get_writer(os.path.join(path, gif_file), mode='I', format='GIF-PIL', duration=delay) as writer:
-            for file in list:
-                img = imageio.imread(os.path.join(new_path, file))
-                writer.append_data(img)
-        shutil.rmtree(new_path)
-                
-    def mkdir(self, path, new_folder=None, params=None):
-        if new_folder:
-            path = os.path.join(path, new_folder)
-        if params:
-            for key, value in params.items():
-                if value:
-                    path = os.path.join(path, value)
-        if not os.path.exists(path):
-            os.makedirs(path)
-        return path
+    def user_following(self, user_id, restrict=None, filter=None, offset=None):
+        url = f'{self.app_host}/v1/user/following'
+        params = {
+            'user_id': user_id,
+            'restrict': restrict,
+            'filter': filter,
+            'offset': offset
+        }
+        return self.parse_url(url, params=params).json()
+   
+    def user_mypixiv(self, user_id, restrict=None, filter=None, offset=None):
+        url = f'{self.app_host}/v1/user/mypixiv'
+        params = {
+            'user_id': user_id,
+            'restrict': restrict,
+            'filter': filter,
+            'offset': offset
+        }
+        return self.parse_url(url, params=params).json()
+
+    def illust_detail(self, illust_id, is_pc=False):
+        if is_pc:
+            url = f'{self.web_host}/touch/ajax/illust/details'
+        else:
+            url = f'{self.app_host}/v1/illust/detail'
+        params = {
+            'illust_id': illust_id
+        }
+        return self.parse_url(url, params=params).json()
+
+    def illust_comments(self, illust_id, include_total_comments=None, offset=None):
+        url = f'{self.app_host}/v1/illust/comments'
+        params = {
+            'illust_id': illust_id,
+            'include_total_comments': include_total_comments,
+            'offset': offset
+        }
+        return self.parse_url(url, params=params).json()
+
+    def illust_recommended(self, illust_id, filter=None, min_bookmark_id_for_recent_illust=None, max_bookmark_id_for_recommend=None, offset=None, include_ranking_illusts=None, include_privacy_policy=None):
+        url = f'{self.app_hosts}/v1/illust/recommended'
+        params = {
+            'illust_id': illust_id,
+            'filter': filter,
+            'min_bookmark_id_for_recent_illust': min_bookmark_id_for_recent_illust,
+            'max_bookmark_id_for_recommend': max_bookmark_id_for_recommend,
+            'offset': offset,
+            'include_ranking_illusts': include_ranking_illusts,
+            'include_privacy_policy': include_privacy_policy
+        }
+        return self.parse_url(url, params=params).json()
+
+    def illust_ranking(self, mode=None, content=None, index='1', filter=None, date=None, offset=None, is_pc=False):
+        params = {
+            'mode': mode,
+            'filter': filter,
+            'date': date,
+            'offset': offset
+        }
+        if is_pc:
+            url = f'{self.web_host}/ranking.php'
+            params['content'] = content
+            params['p'] = index
+            params['format'] = 'json'
+        else:
+            url = f'{self.app_host}/v1/illust/ranking'
+        return self.parse_url(url, params=params).json()
+
+    def trending_tags_illust(self, filter=None):
+        url = f'{self.app_host}/v1/trending-tags/illust/'
+        params = {
+            'filter': filter
+        }
+        return self.parse_url(url, params=params).json()
+
+    def search_illust(self, word, include_translated_tag_results='true', merge_plain_keyword_results='true', filter=None, search_target=None, sort=None, duration=None, start_date=None, end_date=None, offset=None):
+        url = f'{self.app_host}/v1/search/illust'
+        params = {
+            'word': word,
+            'include_translated_tag_results': include_translated_tag_results,
+            'merge_plain_keyword_results': merge_plain_keyword_results,
+            'filter': filter,
+            'search_target': search_target,
+            'sort': sort,
+            'duration': duration,
+            'start_date': start_date,
+            'end_date': end_date,
+            'offset': offset
+        }
+        return self.parse_url(url, params=params).json()
+
+    def search_user(self, word, filter=None, sort=None, duration=None, offset=None):
+        url = f'{self.app_host}/v1/search/user'
+        params = {
+            'word': word,
+            'filter': filter,
+            'sort': sort,
+            'duration': duration,
+            'offset': offset
+        }
+        return self.parse_url(url, params=params).json()
+        
+    def ugoira_metadata(self, illust_id, is_pc=False):
+        if is_pc:
+            url = f'{self.web_host}/ajax/illust/{illust_id}/ugoira_meta'
+            return self.parse_url(url).json()
+        url = f'{self.app_host}/v1/ugoira/metadata'
+        params = {
+            'illust_id': illust_id
+        }
+        return self.parse_url(url, params=params).json()
+
+    def illust_follow(self, restrict='public', filter=None):
+        url = f'{self.app_host}/v2/illust/follow'
+        params = {
+            'restrict': restrict,
+            'filter': filter
+        }
+        return self.parse_url(url, params=params).json()
+        
+    def illust_related(self, illust_id, filter=None, seed_illust_ids=None, offset=None):
+        url = f'{self.app_host}/v2/illust/related'
+        params = {
+            'illust_id': illust_id,
+            'filter': filter,
+            'seed_illust_ids': seed_illust_ids,
+            'offset': offset
+        }
+        return self.parse_url(url, params=params).json()
+
+    def illust_bookmark_detail(self, illust_id, filter=None):
+        url = f'{self.app_host}/v2/illust/bookmark/detail'
+        params = {
+            'illust_id': illust_id,
+            'filter': filter
+        }
+        return self.parse_url(url, params=params).json()
+        
+    def illust_bookmark_add(self, illust_id, restrict='public', tags=None):
+        url = f'{self.app_host}/v2/illust/bookmark/add'
+        data = {
+            'illust_id': illust_id,
+            'restrict': restrict,
+            'tags': tags
+        }
+        return self.parse_url(url, mode='post', data=data).json()
+
+    def illust_bookmark_delete(self, illust_id):
+        url = f'{self.app_host}/v1/illust/bookmark/delete'
+        data = {
+            'illust_id': illust_id
+        }
+        return self.parse_url(url, mode='post', data=data).json()
+        
+    def illust_bookmark_detail(self, illust_id):
+        url = f'{self.app_host}/v2/illust/bookmark/detail'
+        params = {
+            'illust_id': illust_id
+        }
+        return self.parse_url(url, params=params).json()
+
+    def illust_bookmark_users(self, illust_id):
+        url = f'{self.app_host}/v1/illust/bookmark/users'
+        params = {
+            'illust_id': illust_id
+        }
+        return self.parse_url(url, params=params).json()
+
+    def user_follow(self, user_id, restrict='public'):
+        url = f'{self.app_host}/v1/user/follow/add'
+        data = {
+            'user_id': user_id,
+            'restrict': restrict
+        }
+        return self.parse_url(url, mode='post', data=data).json()
+        
+    def user_unfollow(self, user_id, restrict='public'):
+        url = f'{self.app_host}/v1/user/follow/delete'
+        data = {
+            'user_id': user_id,
+            'restrict': restrict
+        }
+        return self.parse_url(url, mode='post', data=data).json()
+
+    def user_follow_detail(self, user_id):
+        url = f'{self.app_host}/v1/user/follow/detail'
+        params = {
+            'user_id': user_id
+        }
+        return self.parse_url(url, params=params).json()
+
+    def spotlight_articles(self, offset=None):
+        url = f'{self.app_host}/v1/spotlight/articles'
+        params = {
+            'offset': offset
+        }
+        return self.parse_url(url, params=params).json()
+        
+    def emoji(self):
+        url = f'{self.app_host}/v1/emoji'
+        return self.parse_url(url).json()
+
+    def user_list(self, user_id, filter=None, offset=None):
+        url = f'{self.app_host}/v2/user/list'
+        params = {
+            'user_id': user_id,
+            'filter': filter,
+            'offset': offset
+        }
+        return self.parse_url(url, params=params).json()
+        
+    def illust_new(self, max_illust_id=None):
+        url = f'{self.app_host}/v1/illust/new'
+        params = {
+            'max_illust_id': max_illust_id
+        }
+        return self.parse_url(url, params=params).json()
+        
+    def illust_series(self, illust_series_id):
+        url = f'{self.app_host}/v1/illust/series'
+        params = {
+            'illust_series_id': illust_series_id
+        }
+        return self.parse_url(url, params=params).json()
+
+    def download(self, url, delay=None):
+        headers = {
+            'referer': 'https://app-api.pixiv.net/'
+        }
+        res = self.parse_url(url, headers=headers, stream=True)
+        file_name = os.path.basename(url)
+        with open(file_name, 'wb') as handle:
+            shutil.copyfileobj(res.raw, handle)
+        del res
+        if delay:
+            with ZipFile(file_name, 'r') as zip:
+                new_path = file_name.split('.')[0]
+                zip.extractall(new_path)
+                list = zip.namelist()
+                shutil.move(file_name, new_path)
+            with imageio.get_writer(f'{new_path}.gif', mode='I', format='GIF-PIL', duration=delay) as writer:
+                for file in list:
+                    img = imageio.imread(os.path.join(new_path, file))
+                    writer.append_data(img)
+            shutil.rmtree(new_path)
