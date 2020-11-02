@@ -63,7 +63,7 @@ class Pixiv():
         headers = {
             'User-Agent': 'PixivIOSApp/7.9.4',
             'X-Client-Time': local_time,
-            'X-Client-Hash': hashlib.md5('{local_time}{hash_secret}'.format(local_time=local_time, hash_secret=self.hash_secret).encode('utf-8')).hexdigest()
+            'X-Client-Hash': hashlib.md5(f'{local_time}{self.hash_secret}'.encode('utf-8')).hexdigest()
         }
         url = 'https://oauth.secure.pixiv.net/auth/token'
         data = {
@@ -154,6 +154,10 @@ class Pixiv():
             'illust_id': illust_id
         }
         return self.parse_url(url, params=params).json()
+        
+    def illust_pages(self, illust_id):
+        url = f'https://www.pixiv.net/ajax/illust/{illust_id}/pages'
+        return self.parse_url(url).json()
 
     def illust_comments(self, illust_id, include_total_comments=None, offset=None):
         url = f'{self.app_host}/v1/illust/comments'

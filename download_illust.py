@@ -1,22 +1,39 @@
 import Pixiv_Crawler
 
-def main():
+def on_PC(illust_id):
     pixiv = Pixiv_Crawler.Pixiv()
-    id = '84278666'
+    res = pixiv.illust_detail(illust_id, is_pc=True)
+    details = res['body']['illust_details']
+    html = pixiv.illust_pages(illust_id)['body']
+    for data in html:
+        url = data['urls']['original']
+        pixiv.download(url)
+        
+def on_APP(illust_id):
+    pixiv = Pixiv_Crawler.Pixiv()
+    pixiv.login('pixiv_id', 'password')
+    res = pixiv.illust_detail(illust_id)
     
-    detail_url = pixiv.get_data_url(illust_id=id, detail=True)
-    detail_req = pixiv.parse_url(detail_url)
+    try:
+        details = res['illust']
+    except:
+        details = res['illusts']
     
-    title = pixiv.get_title(detail_req)
-    illust_type = pixiv.get_illust_type(detail_req)
+    try:
+        urls = details['meta_single_page']['original_image_url']
+        pixiv.download(urls)
+    except:
+        html = details['meta_pages']
+        for data in html:
+            url = data['image_urls']['original']
+            pixiv.download(url)
+
+def main():
+    illust_id = '84278666'      # illust
+    #illust_id = '66808665'     # manga
     
-    data_url = pixiv.get_data_url(illust_id=id, illust_type=illust_type)
-    data_req = pixiv.parse_url(data_url)
-    
-    img = pixiv.get_original_img(data_req, illust_type)
-    
-    path = pixiv.mkdir('Pixiv')
-    pixiv.download_img(img, path, title)
+    on_PC(illust_id)
+    #on_APP(illust_id)
 
 if __name__ == '__main__':
     main()

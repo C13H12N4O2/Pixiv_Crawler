@@ -1,23 +1,31 @@
 import Pixiv_Crawler
 
-def main():
+def on_PC(illust_id):
     pixiv = Pixiv_Crawler.Pixiv()
-    id = '84930667'
+    res = pixiv.ugoira_metadata(illust_id, is_pc=True)
     
-    detail_url = pixiv.get_data_url(illust_id=id, detail=True)
-    detail_req = pixiv.parse_url(detail_url)
+    url = res['body']['src']
+    delay = []
+    for data in res['body']['frames']:
+        delay.append(data['delay']/1000)
+    pixiv.download(url, delay)
     
-    title = pixiv.get_title(detail_req)
-    illust_type = pixiv.get_illust_type(detail_req)
+def on_APP(illust_id):
+    pixiv = Pixiv_Crawler.Pixiv()
+    pixiv.login('pixiv_id', 'password')
+    res = pixiv.ugoira_metadata(illust_id)
     
-    data_url = pixiv.get_data_url(illust_id=id, illust_type=illust_type)
-    data_req = pixiv.parse_url(data_url)
+    url = res['ugoira_metadata']['zip_urls']['medium']
+    delay = []
+    for data in res['ugoira_metadata']['frames']:
+        delay.append(data['delay']/1000)
+    pixiv.download(url, delay)
     
-    img = pixiv.get_original_img(data_req, illust_type)
-    ugoira_delay = pixiv.get_delay(data_req)
+def main():
+    illust_id = '49109712'
     
-    path = pixiv.mkdir('Pixiv')
-    pixiv.download_ugoira(img, path, title, ugoira_delay)
+    on_PC(illust_id)
+    #on_APP(illust_id)
 
 if __name__ == '__main__':
     main()
