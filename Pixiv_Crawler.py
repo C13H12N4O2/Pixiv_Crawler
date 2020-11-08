@@ -191,7 +191,7 @@ class Pixiv():
         if is_pc:
             url = f'{self.web_host}/ranking.php'
             params['content'] = content
-            params['p'] = index
+            params['p'] = min(index, self.pages[mode][content])
             params['format'] = 'json'
         else:
             url = f'{self.app_host}/v1/illust/ranking'
